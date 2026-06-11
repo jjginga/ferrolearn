@@ -1,0 +1,16 @@
+# Rust
+target/
+Cargo.lock
+
+# WASM build output
+web/demos/*/pkg/
+
+# JetBrains
+.idea/
+
+# Notebooks 
+notebooks/
+
+# OS
+.DS_Store
+Thumbs.db
