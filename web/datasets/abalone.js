@@ -1,4 +1,4 @@
-export const ABALONE_URL = "/web/datasets/abalone.data";
+export const ABALONE_URL = "../../datasets/abalone.data";
 
 export const ABALONE_COLUMNS =
     ["sex", "length", "diameter", "height",
