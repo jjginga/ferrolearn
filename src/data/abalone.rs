@@ -83,7 +83,7 @@ impl AbaloneDataset {
         dataset
     }
 
-    pub fn numerical_columns(&self) -> Vec<(&str, Vec<f64>)> {
+    pub fn numerical_columns(&self) -> Vec<(&'static str, Vec<f64>)> {
         vec![
             ("length",         self.length.clone()),
             ("diameter",       self.diameter.clone()),
@@ -104,4 +104,35 @@ impl AbaloneDataset {
     pub fn is_empty(&self) -> bool {
         self.rings.is_empty()
     }
+
+    // Feature columns = numerical_columns() minus rings (the target, always last).
+    // This is the single source of truth — add a field to numerical_columns() and
+    // feature_matrix() and feature_names() automatically include it.
+    pub fn feature_columns(&self) -> Vec<(&'static str, Vec<f64>)> {
+        let mut cols = self.numerical_columns();
+        cols.pop(); // remove rings
+        cols
+    }
+
+    pub fn feature_names(&self) -> Vec<&'static str> {
+        self.feature_columns().into_iter().map(|(name, _)| name).collect()
+    }
+
+    pub fn feature_matrix(&self) -> Vec<f64> {
+        let cols = self.feature_columns();
+        let m = self.len();
+        let n = cols.len(); // derived, not hardcoded
+        let mut matrix = vec![0.0; m * n];
+        for (j, (_, col)) in cols.iter().enumerate() {
+            for i in 0..m {
+                matrix[i * n + j] = col[i];
+            }
+        }
+        matrix
+    }
+
+    pub fn targets(&self) -> Vec<f64> {
+        self.rings.iter().map(|&r| r as f64).collect()
+    }
+
 }

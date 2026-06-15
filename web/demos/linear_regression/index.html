@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linear Regression — ferrolearn</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h1>linear regression</h1>
+<p class="subtitle">abalone dataset · predicting ring count from physical measurements</p>
+<p id="status">loading...</p>
+
+<!-- ── Controls ─────────────────────────────────────────────── -->
+<section class="controls">
+    <div class="control-group">
+        <label for="reg-type">regularization</label>
+        <select id="reg-type">
+            <option value="none">none</option>
+            <option value="l2" selected>l2 (ridge)</option>
+            <option value="l1">l1 (lasso)</option>
+        </select>
+    </div>
+
+    <div class="control-group">
+        <label for="lambda">λ <span id="lambda-val">0.01</span></label>
+        <input id="lambda" type="range" min="-4" max="0" step="0.5" value="-2">
+    </div>
+
+    <div class="control-group">
+        <label for="lr">learning rate <span id="lr-val">0.01</span></label>
+        <input id="lr" type="range" min="-4" max="-1" step="0.5" value="-2">
+    </div>
+
+    <div class="control-group">
+        <label for="epochs">epochs <span id="epochs-val">500</span></label>
+        <input id="epochs" type="range" min="100" max="2000" step="100" value="500">
+    </div>
+
+    <button id="train-btn" disabled>train</button>
+</section>
+
+<!-- ── Training ──────────────────────────────────────────────── -->
+<section class="viz-section">
+    <h2>training loss</h2>
+    <p class="caption">mse at each epoch during gradient descent</p>
+    <div id="loss-chart"></div>
+</section>
+
+<!-- ── Results ───────────────────────────────────────────────── -->
+<section class="viz-section two-col">
+    <div>
+        <h2>predicted vs actual</h2>
+        <p class="caption">each dot is one abalone — perfect model sits on the diagonal</p>
+        <div id="scatter-chart"></div>
+    </div>
+    <div>
+        <h2>feature weights</h2>
+        <p class="caption">weight magnitude after training — positive = more rings</p>
+        <div id="weights-chart"></div>
+    </div>
+</section>
+
+<!-- ── Grid search ───────────────────────────────────────────── -->
+<section class="viz-section">
+    <h2>grid search — λ vs validation mse</h2>
+    <p class="caption">5-fold cross-validation across λ values · best λ highlighted</p>
+    <button id="search-btn" disabled>run grid search</button>
+    <div id="grid-chart"></div>
+</section>
+
+<script type="module" src="demo.js"></script>
+</body>
+</html>
