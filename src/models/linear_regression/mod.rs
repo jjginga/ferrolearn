@@ -9,6 +9,8 @@ pub struct LinearRegression {
     regularization: Regularization,
     pub epochs: usize,
     pub loss_history: Vec<f64>,
+    pub r2_train_history: Vec<f64>,
+    pub r2_val_history: Vec<f64>,
 }
 
 impl LinearRegression {
@@ -21,6 +23,71 @@ impl LinearRegression {
             regularization,
             epochs,
             loss_history: Vec::new(),
+            r2_train_history: Vec::new(),
+            r2_val_history: Vec::new(),
+        }
+    }
+
+    pub fn fit_with_val(
+        &mut self,
+        x_train: &[f64], y_train: &[f64], m_train: usize,
+        x_val: &[f64],   y_val: &[f64],   m_val: usize,
+        n: usize,
+    ) {
+        // Compute normalization stats from training data only — never touch val stats
+        self.feature_mean = column_means(x_train, m_train, n);
+        self.feature_std  = column_stds(x_train, m_train, n, &self.feature_mean);
+
+        // Normalize both sets using training stats
+        let x_train_norm = normalize(x_train, m_train, n, &self.feature_mean, &self.feature_std);
+        let x_val_norm   = normalize(x_val,   m_val,   n, &self.feature_mean, &self.feature_std);
+
+        // Augment both with bias column
+        let x_train_aug = augment(&x_train_norm, m_train, n);
+        let x_val_aug   = augment(&x_val_norm,   m_val,   n);
+        let n_aug = n + 1;
+
+        self.weights = vec![0.0; n_aug];
+        self.loss_history        = Vec::with_capacity(self.epochs);
+        self.r2_train_history    = Vec::with_capacity(self.epochs);
+        self.r2_val_history      = Vec::with_capacity(self.epochs);
+
+        let scale = 2.0 / m_train as f64;
+
+        for _ in 0..self.epochs {
+            let preds = mat_vec_mul(&x_train_aug, &self.weights, m_train, n_aug);
+
+            let residuals: Vec<f64> = preds.iter()
+                .zip(y_train.iter())
+                .map(|(p, t)| p - t)
+                .collect();
+
+            // Record MSE and train R² before weight update (same convention as fit())
+            let loss = residuals.iter().map(|e| e * e).sum::<f64>() / m_train as f64;
+            self.loss_history.push(loss);
+            self.r2_train_history.push(crate::ml::r2(y_train, &preds));
+
+            // Record val R² using current weights
+            let val_preds = mat_vec_mul(&x_val_aug, &self.weights, m_val, n_aug);
+            self.r2_val_history.push(crate::ml::r2(y_val, &val_preds));
+
+            // Gradient and weight update — identical to fit()
+            let mut grad = mat_t_vec_mul(&x_train_aug, &residuals, m_train, n_aug);
+            for g in grad.iter_mut() { *g *= scale; }
+
+            match &self.regularization {
+                Regularization::L2(lambda) => {
+                    for j in 1..n_aug { grad[j] += 2.0 * lambda * self.weights[j]; }
+                }
+                Regularization::L1(lambda) => {
+                    for j in 1..n_aug { grad[j] += lambda * self.weights[j].signum(); }
+                }
+                Regularization::None => {}
+            }
+
+            for (w, g) in self.weights.iter_mut().zip(grad.iter()) {
+                *w -= self.learning_rate * g;
+            }
         }
     }
 

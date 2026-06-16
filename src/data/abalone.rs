@@ -84,7 +84,13 @@ impl AbaloneDataset {
     }
 
     pub fn numerical_columns(&self) -> Vec<(&'static str, Vec<f64>)> {
+        // One-hot encode sex: female is the reference category (both columns = 0).
+        // This avoids implying a false ordering between M, F, I.
+        let sex_m: Vec<f64> = self.sex.iter().map(|s| if s == "M" { 1.0 } else { 0.0 }).collect();
+        let sex_i: Vec<f64> = self.sex.iter().map(|s| if s == "I" { 1.0 } else { 0.0 }).collect();
         vec![
+            ("sex_M",          sex_m),
+            ("sex_I",          sex_i),
             ("length",         self.length.clone()),
             ("diameter",       self.diameter.clone()),
             ("height",         self.height.clone()),

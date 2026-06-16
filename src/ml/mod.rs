@@ -7,6 +7,14 @@ pub trait SupervisedModel {
     fn fit(&mut self, x: &[f64], y: &[f64], m: usize, n: usize);
     fn predict(&self, x: &[f64], m: usize, n: usize) -> Vec<f64>;
     fn mse(&self, x: &[f64], y: &[f64], m: usize, n: usize) -> f64;
+
+    fn r2(&self, x: &[f64], y: &[f64], m: usize, n: usize) -> f64 {
+        r2(y, &self.predict(x, m, n))
+    }
+
+    fn rmse(&self, x: &[f64], y: &[f64], m: usize, n: usize) -> f64 {
+        rmse(y, &self.predict(x, m, n))
+    }
 }
 
 // ─── Regularization ──────────────────────────────────────────────────────────
@@ -97,4 +105,32 @@ where
             (lambda, mse)
         })
         .collect()
+}
+
+// R² (coefficient of determination) — measures how much of the variance in the target
+// the model explains. R²=1 means perfect prediction; R²=0 means the model does no
+// better than predicting the mean; negative values mean it's worse than the mean.
+pub fn r2(actual: &[f64], predicted: &[f64]) -> f64 {
+    // Mean of the actual values — this is what a baseline "predict the mean" model uses
+    let mean = actual.iter().sum::<f64>() / actual.len() as f64;
+
+    // SS_tot: total variance in the data — how spread out the actual values are
+    let ss_tot: f64 = actual.iter().map(|y| (y - mean).powi(2)).sum();
+
+    // SS_res: residual sum of squares — how much variance our model *fails* to explain
+    let ss_res: f64 = actual.iter().zip(predicted).map(|(y, yh)| (y - yh).powi(2)).sum();
+
+    // 1 - (unexplained / total): fraction of variance the model captures
+    1.0 - ss_res / ss_tot
+}
+
+// RMSE (root mean squared error) — average prediction error in the same units as the target.
+// Easier to interpret than MSE: if rings is the target, RMSE is in rings, not rings².
+pub fn rmse(actual: &[f64], predicted: &[f64]) -> f64 {
+    // Mean squared error first — average of squared residuals
+    let mse: f64 = actual.iter().zip(predicted).map(|(y, yh)| (y - yh).powi(2)).sum::<f64>()
+        / actual.len() as f64;
+
+    // Square root brings the error back to the original unit scale
+    mse.sqrt()
 }

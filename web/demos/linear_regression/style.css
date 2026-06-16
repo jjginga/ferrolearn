@@ -74,6 +74,13 @@ button:hover:not(:disabled) { background: #444; }
     gap: 2rem;
 }
 
+.note {
+    font-size: 0.82rem;
+    color: #888;
+    margin-top: -1rem;
+    margin-bottom: 2rem;
+}
+
 /* D3 axis labels */
 .axis-label {
     font-size: 0.78rem;

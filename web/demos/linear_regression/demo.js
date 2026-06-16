@@ -8,6 +8,27 @@ const W = 480, H = 320;
 const IW = W - MARGIN.left - MARGIN.right;
 const IH = H - MARGIN.top - MARGIN.bottom;
 
+// ── Grid ───────────────────────────────────────────────────────────────────
+// Single source of truth for the λ search space.
+// Reads logMin, logMax, and num from the grid search controls — the user owns the range.
+// Generates `num` values evenly spaced on a log scale, plus λ=0 as a no-regularization baseline.
+function makeGrid() {
+  const logMin = +document.getElementById("grid-log-min").value;
+  const logMax = +document.getElementById("grid-log-max").value;
+  const num    = +document.getElementById("grid-steps").value;
+  const vals = Array.from({ length: num }, (_, i) =>
+    Math.pow(10, logMin + (logMax - logMin) * i / (num - 1))
+  );
+  return new Float64Array([0, ...vals]);  // λ=0 prepended as the no-regularization baseline
+}
+
+// Wire up grid control displays
+["grid-log-min", "grid-log-max", "grid-steps"].forEach(id => {
+  const el = document.getElementById(id);
+  const display = document.getElementById(`${id}-val`);
+  el.addEventListener("input", () => { display.textContent = el.value; });
+});
+
 // ── State ──────────────────────────────────────────────────────────────────
 let abalone = null;
 
@@ -55,73 +76,109 @@ document.getElementById("train-btn").addEventListener("click", () => {
 
   // Run in next tick so the UI updates before the heavy Rust call
   setTimeout(() => {
-    const model = new WasmLinearRegression(lr, regType, lambda, epochs);
-    const lossHistory = model.fit(abalone);   // Float64Array or JS Array
+    const model   = new WasmLinearRegression(lr, regType, lambda, epochs);
+    const result  = model.fit(abalone);
+    const lossHistory = result.loss;
+    const r2Train     = result.r2_train;
+    const r2Val       = result.r2_val;
     const predictions = model.predictions(abalone);
     const weights     = model.weights();
 
-    drawLoss(Array.from(lossHistory));
+    drawLoss(lossHistory);
+    drawR2(r2Train, r2Val);
     drawScatter(predictions);
     drawWeights(weights);
 
     const finalMse = lossHistory[lossHistory.length - 1];
-    setStatus(`done — final mse ${finalMse.toFixed(4)}`);
+    const finalR2  = r2Val[r2Val.length - 1];
+    setStatus(`done — mse ${finalMse.toFixed(4)} · val R² ${finalR2.toFixed(3)}`);
     document.getElementById("train-btn").disabled = false;
   }, 10);
 });
 
-// ── Grid search ────────────────────────────────────────────────────────────
+// ── Search & train ─────────────────────────────────────────────────────────
+// Single source of truth for the combined workflow:
+//   1. Grid search finds the best λ via 5-fold CV
+//   2. That λ — and only that λ — is used to train the final model
+// The manual train button above is for free exploration; this button is for
+// the correct ML workflow where hyperparameters are chosen before final training.
 document.getElementById("search-btn").addEventListener("click", () => {
   if (!abalone) return;
 
+  // Read all hyperparameters from the controls — same source as the train button,
+  // except λ comes from the grid search result, not the slider
   const regType = document.getElementById("reg-type").value;
   const lr      = getLr();
   const epochs  = +epochsEl.value;
 
   setStatus("running grid search…");
   document.getElementById("search-btn").disabled = true;
+  document.getElementById("train-btn").disabled  = true;
 
   setTimeout(() => {
-    const results = wasm_grid_search(abalone, regType, 5, lr, epochs);
+    // Step 1: grid search — evaluates λ ∈ {0, 1e-4, 1e-3, 1e-2, 1e-1, 1} via 5-fold CV
+    const results = wasm_grid_search(abalone, regType, 5, lr, epochs, makeGrid());
     drawGridSearch(results);
 
+    // Step 2: pick the λ with the lowest cross-validation MSE
     const best = results.reduce((a, b) => a.mse < b.mse ? a : b);
-    setStatus(`grid search done — best λ=${best.lambda.toExponential(2)}, mse=${best.mse.toFixed(4)}`);
-    document.getElementById("search-btn").disabled = false;
+    setStatus(`grid search done — best λ=${best.lambda.toExponential(2)} · retraining…`);
+
+    // Step 3: retrain the final model on the full dataset using the best λ
+    // (CV was only for selecting λ — the final model uses all available data)
+    setTimeout(() => {
+      const model  = new WasmLinearRegression(lr, regType, best.lambda, epochs);
+      const result = model.fit(abalone);
+
+      drawLoss(result.loss);
+      drawR2(result.r2_train, result.r2_val);
+      drawScatter(model.predictions(abalone));
+      drawWeights(model.weights());
+
+      const finalR2 = result.r2_val[result.r2_val.length - 1];
+      setStatus(
+        `done — best λ=${best.lambda.toExponential(2)} · val R² ${finalR2.toFixed(3)}`
+      );
+      document.getElementById("search-btn").disabled = false;
+      document.getElementById("train-btn").disabled  = false;
+    }, 10);
   }, 10);
 });
 
 // ── Charts ─────────────────────────────────────────────────────────────────
 
-function svgBase(containerId) {
+// Creates an SVG with a <g> translated to the inner plot area.
+// Accepts an optional margin override — used by charts that need wider label space.
+function svgBase(containerId, margin = MARGIN) {
   const container = document.getElementById(containerId);
   container.innerHTML = "";
-  return d3.select(container)
-    .append("svg")
-    .attr("width", W)
-    .attr("height", H)
-    .append("g")
-    .attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+  return {
+    g:  d3.select(container)
+          .append("svg")
+          .attr("width", W)
+          .attr("height", H)
+          .append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`),
+    iw: W - margin.left - margin.right,
+    ih: H - margin.top  - margin.bottom,
+  };
 }
 
 function drawLoss(loss) {
-  const g = svgBase("loss-chart");
+  const { g, iw, ih } = svgBase("loss-chart");
 
-  const x = d3.scaleLinear().domain([0, loss.length - 1]).range([0, IW]);
-  const y = d3.scaleLinear().domain([0, d3.max(loss) * 1.05]).range([IH, 0]);
+  const x = d3.scaleLinear().domain([0, loss.length - 1]).range([0, iw]);
+  const y = d3.scaleLinear().domain([0, d3.max(loss) * 1.05]).range([ih, 0]);
 
-  // Axes
-  g.append("g").attr("transform", `translate(0,${IH})`).call(d3.axisBottom(x).ticks(6));
+  g.append("g").attr("transform", `translate(0,${ih})`).call(d3.axisBottom(x).ticks(6));
   g.append("g").call(d3.axisLeft(y).ticks(5));
 
-  // Axis labels
-  g.append("text").attr("x", IW / 2).attr("y", IH + 40)
+  g.append("text").attr("x", iw / 2).attr("y", ih + 40)
     .attr("text-anchor", "middle").attr("class", "axis-label").text("epoch");
   g.append("text").attr("transform", "rotate(-90)")
-    .attr("x", -IH / 2).attr("y", -45)
+    .attr("x", -ih / 2).attr("y", -45)
     .attr("text-anchor", "middle").attr("class", "axis-label").text("mse");
 
-  // Line
   const line = d3.line().x((_, i) => x(i)).y(d => y(d));
   g.append("path")
     .datum(loss)
@@ -131,35 +188,82 @@ function drawLoss(loss) {
     .attr("d", line);
 }
 
+function drawR2(r2Train, r2Val) {
+  const { g, iw, ih } = svgBase("r2-chart");
+
+  const x = d3.scaleLinear().domain([0, r2Train.length - 1]).range([0, iw]);
+
+  // Clip y-axis to [-0.5, 1] — early epochs start very negative but that region
+  // is uninformative. clamp(true) pins out-of-range values to the axis edges
+  // so the lines don't disappear; they just enter from the bottom.
+  const allR2 = [...r2Train, ...r2Val].filter(v => isFinite(v));
+  const yMin = Math.max(d3.min(allR2), -0.5);
+  const y = d3.scaleLinear().domain([yMin, 1]).range([ih, 0]).clamp(true);
+
+  g.append("g").attr("transform", `translate(0,${ih})`).call(d3.axisBottom(x).ticks(6));
+  g.append("g").call(d3.axisLeft(y).ticks(5));
+
+  g.append("text").attr("x", iw / 2).attr("y", ih + 40)
+    .attr("text-anchor", "middle").attr("class", "axis-label").text("epoch");
+  g.append("text").attr("transform", "rotate(-90)")
+    .attr("x", -ih / 2).attr("y", -45)
+    .attr("text-anchor", "middle").attr("class", "axis-label").text("R²");
+
+  const line = d3.line().defined(d => isFinite(d));
+
+  // Training R² — blue
+  g.append("path")
+    .datum(r2Train)
+    .attr("fill", "none")
+    .attr("stroke", "var(--accent)")
+    .attr("stroke-width", 2)
+    .attr("d", line.x((_, i) => x(i)).y(d => y(d)));
+
+  // Validation R² — orange dashed
+  g.append("path")
+    .datum(r2Val)
+    .attr("fill", "none")
+    .attr("stroke", "var(--accent-highlight, #f5a623)")
+    .attr("stroke-width", 2)
+    .attr("stroke-dasharray", "5,3")
+    .attr("d", line.x((_, i) => x(i)).y(d => y(d)));
+
+  // Legend
+  const legend = g.append("g").attr("transform", `translate(${iw - 120}, 10)`);
+  legend.append("line").attr("x1", 0).attr("x2", 20).attr("y1", 0).attr("y2", 0)
+    .attr("stroke", "var(--accent)").attr("stroke-width", 2);
+  legend.append("text").attr("x", 25).attr("y", 4).attr("class", "axis-label").text("train");
+  legend.append("line").attr("x1", 0).attr("x2", 20).attr("y1", 16).attr("y2", 16)
+    .attr("stroke", "var(--accent-highlight, #f5a623)").attr("stroke-width", 2)
+    .attr("stroke-dasharray", "5,3");
+  legend.append("text").attr("x", 25).attr("y", 20).attr("class", "axis-label").text("val");
+}
+
 function drawScatter(predictions) {
-  // predictions: [{actual, predicted}, …]
-  const g = svgBase("scatter-chart");
+  const { g, iw, ih } = svgBase("scatter-chart");
 
   const allVals = predictions.flatMap(d => [d.actual, d.predicted]);
   const ext = d3.extent(allVals);
   const pad = (ext[1] - ext[0]) * 0.05;
   const domain = [ext[0] - pad, ext[1] + pad];
 
-  const x = d3.scaleLinear().domain(domain).range([0, IW]);
-  const y = d3.scaleLinear().domain(domain).range([IH, 0]);
+  const x = d3.scaleLinear().domain(domain).range([0, iw]);
+  const y = d3.scaleLinear().domain(domain).range([ih, 0]);
 
-  // Diagonal reference line
   g.append("line")
     .attr("x1", x(domain[0])).attr("y1", y(domain[0]))
     .attr("x2", x(domain[1])).attr("y2", y(domain[1]))
     .attr("stroke", "#aaa").attr("stroke-dasharray", "4,3").attr("stroke-width", 1);
 
-  // Axes
-  g.append("g").attr("transform", `translate(0,${IH})`).call(d3.axisBottom(x).ticks(5));
+  g.append("g").attr("transform", `translate(0,${ih})`).call(d3.axisBottom(x).ticks(5));
   g.append("g").call(d3.axisLeft(y).ticks(5));
 
-  g.append("text").attr("x", IW / 2).attr("y", IH + 40)
+  g.append("text").attr("x", iw / 2).attr("y", ih + 40)
     .attr("text-anchor", "middle").attr("class", "axis-label").text("actual rings");
   g.append("text").attr("transform", "rotate(-90)")
-    .attr("x", -IH / 2).attr("y", -45)
+    .attr("x", -ih / 2).attr("y", -45)
     .attr("text-anchor", "middle").attr("class", "axis-label").text("predicted rings");
 
-  // Dots — subsample to keep the DOM lean
   const sample = predictions.length > 800
     ? predictions.filter((_, i) => i % Math.ceil(predictions.length / 800) === 0)
     : predictions;
@@ -179,26 +283,27 @@ function drawWeights(weights) {
   // weights: [{name, weight}, …], sorted by |weight| descending
   const sorted = [...weights].sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
 
-  const g = svgBase("weights-chart");
+  // Wider left margin so full feature names like "shucked_weight" aren't clipped
+  const { g, iw, ih } = svgBase("weights-chart", { ...MARGIN, left: 110 });
 
   const x = d3.scaleLinear()
     .domain([d3.min(sorted, d => d.weight) * 1.1, d3.max(sorted, d => d.weight) * 1.1])
-    .range([0, IW]);
+    .range([0, iw]);
   const y = d3.scaleBand()
     .domain(sorted.map(d => d.name))
-    .range([0, IH])
+    .range([0, ih])
     .padding(0.25);
 
-  g.append("g").attr("transform", `translate(0,${IH})`).call(d3.axisBottom(x).ticks(5));
+  g.append("g").attr("transform", `translate(0,${ih})`).call(d3.axisBottom(x).ticks(5));
   g.append("g").call(d3.axisLeft(y));
 
   // Zero line
   g.append("line")
     .attr("x1", x(0)).attr("y1", 0)
-    .attr("x2", x(0)).attr("y2", IH)
+    .attr("x2", x(0)).attr("y2", ih)
     .attr("stroke", "#aaa").attr("stroke-width", 1);
 
-  g.append("text").attr("x", IW / 2).attr("y", IH + 40)
+  g.append("text").attr("x", iw / 2).attr("y", ih + 40)
     .attr("text-anchor", "middle").attr("class", "axis-label").text("weight value");
 
   g.selectAll("rect")
@@ -213,37 +318,29 @@ function drawWeights(weights) {
 }
 
 function drawGridSearch(results) {
-  // results: [{lambda, mse}, …]
-  const g = svgBase("grid-chart");
+  const { g, iw, ih } = svgBase("grid-chart");
 
   const sorted = [...results].sort((a, b) => a.lambda - b.lambda);
   const best   = sorted.reduce((a, b) => a.mse < b.mse ? a : b);
 
-  // Use log scale for lambda; skip lambda=0 (replace with tiny value)
+  // λ=0 can't live on a log scale — replace with a small proxy value for positioning only
   const lambdas = sorted.map(d => d.lambda === 0 ? 1e-5 : d.lambda);
-  const xMin = d3.min(lambdas);
-  const xMax = d3.max(lambdas);
-
-  const x = d3.scaleLog().domain([xMin, xMax]).range([0, IW]);
+  const x = d3.scaleLog().domain([d3.min(lambdas), d3.max(lambdas)]).range([0, iw]);
   const y = d3.scaleLinear()
     .domain([d3.min(sorted, d => d.mse) * 0.98, d3.max(sorted, d => d.mse) * 1.02])
-    .range([IH, 0]);
+    .range([ih, 0]);
 
-  g.append("g").attr("transform", `translate(0,${IH})`)
-    .call(d3.axisBottom(x).ticks(sorted.length, ".0e"));
+  g.append("g").attr("transform", `translate(0,${ih})`)
+    .call(d3.axisBottom(x).ticks(8, ".0e"));
   g.append("g").call(d3.axisLeft(y).ticks(5));
 
-  g.append("text").attr("x", IW / 2).attr("y", IH + 40)
+  g.append("text").attr("x", iw / 2).attr("y", ih + 40)
     .attr("text-anchor", "middle").attr("class", "axis-label").text("λ");
   g.append("text").attr("transform", "rotate(-90)")
-    .attr("x", -IH / 2).attr("y", -45)
+    .attr("x", -ih / 2).attr("y", -45)
     .attr("text-anchor", "middle").attr("class", "axis-label").text("validation mse");
 
-  // Line
-  const line = d3.line()
-    .x((d, i) => x(lambdas[i]))
-    .y(d => y(d.mse));
-
+  const line = d3.line().x((d, i) => x(lambdas[i])).y(d => y(d.mse));
   g.append("path")
     .datum(sorted)
     .attr("fill", "none")
@@ -251,7 +348,6 @@ function drawGridSearch(results) {
     .attr("stroke-width", 2)
     .attr("d", line);
 
-  // Dots
   g.selectAll("circle")
     .data(sorted)
     .enter()
@@ -263,7 +359,6 @@ function drawGridSearch(results) {
     .attr("stroke", "#fff")
     .attr("stroke-width", 1.5);
 
-  // Best label
   const bi = sorted.indexOf(best);
   g.append("text")
     .attr("x", x(lambdas[bi]) + 8)

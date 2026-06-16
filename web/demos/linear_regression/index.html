@@ -39,14 +39,49 @@
         <input id="epochs" type="range" min="100" max="2000" step="100" value="500">
     </div>
 
+    <!-- train: manual run using the λ slider above -->
     <button id="train-btn" disabled>train</button>
+
+    <!-- search & train: finds the best λ via grid search then retrains —
+         the correct workflow, bypasses the λ slider -->
+    <button id="search-btn" disabled>search &amp; train</button>
+</section>
+
+<p class="note">
+    <strong>train</strong> — gradient descent with the λ from the slider.
+    <strong>search &amp; train</strong> — finds the best λ automatically via 5-fold cross-validation, then retrains with it. this is the correct workflow.
+</p>
+
+<!-- ── Grid search controls ──────────────────────────────────── -->
+<section class="controls">
+    <div class="control-group">
+        <label for="grid-log-min">λ min (10^x) <span id="grid-log-min-val">-6</span></label>
+        <input id="grid-log-min" type="range" min="-8" max="0" step="1" value="-6">
+    </div>
+
+    <div class="control-group">
+        <label for="grid-log-max">λ max (10^x) <span id="grid-log-max-val">1</span></label>
+        <input id="grid-log-max" type="range" min="0" max="4" step="1" value="1">
+    </div>
+
+    <div class="control-group">
+        <label for="grid-steps">grid steps <span id="grid-steps-val">30</span></label>
+        <input id="grid-steps" type="range" min="5" max="60" step="5" value="30">
+    </div>
 </section>
 
 <!-- ── Training ──────────────────────────────────────────────── -->
-<section class="viz-section">
-    <h2>training loss</h2>
-    <p class="caption">mse at each epoch during gradient descent</p>
-    <div id="loss-chart"></div>
+<section class="viz-section two-col">
+    <div>
+        <h2>training loss</h2>
+        <p class="caption">mse at each epoch during gradient descent</p>
+        <div id="loss-chart"></div>
+    </div>
+    <div>
+        <h2>R² evolution</h2>
+        <p class="caption">train vs validation R² across epochs — gap reveals overfitting</p>
+        <div id="r2-chart"></div>
+    </div>
 </section>
 
 <!-- ── Results ───────────────────────────────────────────────── -->
@@ -66,8 +101,7 @@
 <!-- ── Grid search ───────────────────────────────────────────── -->
 <section class="viz-section">
     <h2>grid search — λ vs validation mse</h2>
-    <p class="caption">5-fold cross-validation across λ values · best λ highlighted</p>
-    <button id="search-btn" disabled>run grid search</button>
+    <p class="caption">5-fold cross-validation across λ values · best λ used to retrain</p>
     <div id="grid-chart"></div>
 </section>
 
