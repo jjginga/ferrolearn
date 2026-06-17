@@ -8,7 +8,6 @@ pub struct LinearRegression {
     learning_rate: f64,
     regularization: Regularization,
     pub epochs: usize,
-    pub loss_history: Vec<f64>,
     pub r2_train_history: Vec<f64>,
     pub r2_val_history: Vec<f64>,
 }
@@ -22,7 +21,6 @@ impl LinearRegression {
             learning_rate,
             regularization,
             epochs,
-            loss_history: Vec::new(),
             r2_train_history: Vec::new(),
             r2_val_history: Vec::new(),
         }
@@ -48,11 +46,11 @@ impl LinearRegression {
         let n_aug = n + 1;
 
         self.weights = vec![0.0; n_aug];
-        self.loss_history        = Vec::with_capacity(self.epochs);
         self.r2_train_history    = Vec::with_capacity(self.epochs);
         self.r2_val_history      = Vec::with_capacity(self.epochs);
 
-        let scale = 2.0 / m_train as f64;
+        // gradient of (1/m)||Xw-y||² is (1/m)·Xᵀe — matching the notebook (no factor of 2)
+        let scale = 1.0 / m_train as f64;
 
         for _ in 0..self.epochs {
             let preds = mat_vec_mul(&x_train_aug, &self.weights, m_train, n_aug);
@@ -62,9 +60,7 @@ impl LinearRegression {
                 .map(|(p, t)| p - t)
                 .collect();
 
-            // Record MSE and train R² before weight update (same convention as fit())
-            let loss = residuals.iter().map(|e| e * e).sum::<f64>() / m_train as f64;
-            self.loss_history.push(loss);
+            // Track R² on training set before weight update (matches notebook — R² is the primary metric)
             self.r2_train_history.push(crate::ml::r2(y_train, &preds));
 
             // Record val R² using current weights
@@ -95,7 +91,8 @@ impl LinearRegression {
 
 impl SupervisedModel for LinearRegression {
 
-    // w̃ ← w̃ − α · [(2/m) X̃ᵀ(X̃w̃ − y) + regularization_term]
+    // w̃ ← w̃ − α · [(1/m) X̃ᵀ(X̃w̃ − y) + regularization_term]
+    // gradient of (1/m)||Xw-y||² is (1/m)·Xᵀe — matching the notebook (no factor of 2)
     fn fit(&mut self, x: &[f64], y: &[f64], m: usize, n: usize) {
         self.feature_mean = column_means(x, m, n);
         self.feature_std  = column_stds(x, m, n, &self.feature_mean);
@@ -105,9 +102,8 @@ impl SupervisedModel for LinearRegression {
         let n_aug  = n + 1;
 
         self.weights = vec![0.0; n_aug];
-        self.loss_history = Vec::with_capacity(self.epochs);
 
-        let scale = 2.0 / m as f64;
+        let scale = 1.0 / m as f64;
 
         for _ in 0..self.epochs {
             let preds = mat_vec_mul(&x_aug, &self.weights, m, n_aug);
@@ -116,9 +112,6 @@ impl SupervisedModel for LinearRegression {
                 .zip(y.iter())
                 .map(|(p, t)| p - t)
                 .collect();
-
-            let loss = residuals.iter().map(|e| e * e).sum::<f64>() / m as f64;
-            self.loss_history.push(loss);
 
             let mut grad = mat_t_vec_mul(&x_aug, &residuals, m, n_aug);
             for g in grad.iter_mut() { *g *= scale; }
@@ -147,13 +140,5 @@ impl SupervisedModel for LinearRegression {
         let x_norm = normalize(x, m, n, &self.feature_mean, &self.feature_std);
         let x_aug  = augment(&x_norm, m, n);
         mat_vec_mul(&x_aug, &self.weights, m, n + 1)
-    }
-
-   fn mse(&self, x: &[f64], y: &[f64], m: usize, n: usize) -> f64 {
-        let preds = self.predict(x, m, n);
-        preds.iter()
-            .zip(y.iter())
-            .map(|(p, t)| (p - t).powi(2))
-            .sum::<f64>() / m as f64
     }
 }

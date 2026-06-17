@@ -31,12 +31,12 @@
 
     <div class="control-group">
         <label for="lr">learning rate <span id="lr-val">0.01</span></label>
-        <input id="lr" type="range" min="-4" max="-1" step="0.5" value="-2">
+        <input id="lr" type="range" min="-4" max="-1" step="0.1" value="-3.3">
     </div>
 
     <div class="control-group">
-        <label for="epochs">epochs <span id="epochs-val">500</span></label>
-        <input id="epochs" type="range" min="100" max="2000" step="100" value="500">
+        <label for="epochs">epochs <span id="epochs-val">25000</span></label>
+        <input id="epochs" type="range" min="1000" max="30000" step="1000" value="25000">
     </div>
 
     <!-- train: manual run using the λ slider above -->
@@ -68,20 +68,18 @@
         <label for="grid-steps">grid steps <span id="grid-steps-val">30</span></label>
         <input id="grid-steps" type="range" min="5" max="60" step="5" value="30">
     </div>
+
+    <div class="control-group">
+        <label for="cv-epochs">cv epochs <span id="cv-epochs-val">5000</span></label>
+        <input id="cv-epochs" type="range" min="1000" max="25000" step="1000" value="5000">
+    </div>
 </section>
 
 <!-- ── Training ──────────────────────────────────────────────── -->
-<section class="viz-section two-col">
-    <div>
-        <h2>training loss</h2>
-        <p class="caption">mse at each epoch during gradient descent</p>
-        <div id="loss-chart"></div>
-    </div>
-    <div>
-        <h2>R² evolution</h2>
-        <p class="caption">train vs validation R² across epochs — gap reveals overfitting</p>
-        <div id="r2-chart"></div>
-    </div>
+<section class="viz-section">
+    <h2>R² evolution</h2>
+    <p class="caption">train vs validation R² across epochs — gap reveals overfitting</p>
+    <div id="r2-chart"></div>
 </section>
 
 <!-- ── Results ───────────────────────────────────────────────── -->
@@ -100,7 +98,7 @@
 
 <!-- ── Grid search ───────────────────────────────────────────── -->
 <section class="viz-section">
-    <h2>grid search — λ vs validation mse</h2>
+    <h2>grid search — λ vs validation rmse</h2>
     <p class="caption">5-fold cross-validation across λ values · best λ used to retrain</p>
     <div id="grid-chart"></div>
 </section>

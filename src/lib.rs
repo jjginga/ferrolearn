@@ -29,7 +29,6 @@ struct WeightEntry {
 
 #[derive(serde::Serialize)]
 struct FitResult {
-    loss: Vec<f64>,
     r2_train: Vec<f64>,
     r2_val: Vec<f64>,
 }
@@ -37,7 +36,7 @@ struct FitResult {
 #[derive(serde::Serialize)]
 struct GridSearchEntry {
     lambda: f64,
-    mse: f64,
+    rmse: f64,  // notebook selects best lambda by lowest average validation RMSE
 }
 
 #[derive(serde::Serialize)]
@@ -79,8 +78,8 @@ impl WasmLinearRegression {
     }
 
     // Train on the abalone dataset.
-    // Returns the loss history as a JS array — one MSE value per epoch.
-    // JS animates the loss curve by stepping through this array.
+    // Returns R² history for train and val splits — one value per epoch.
+    // JS uses this to plot the R² evolution curve.
     pub fn fit(&mut self, abalone: &WasmAbalone) -> JsValue {
         let x = abalone.dataset.feature_matrix();
         let y = abalone.dataset.targets();
@@ -103,7 +102,6 @@ impl WasmLinearRegression {
         self.model.fit_with_val(x_train, y_train, m_train, x_val, y_val, m_val, n);
 
         serde_wasm_bindgen::to_value(&FitResult {
-            loss:     self.model.loss_history.clone(),
             r2_train: self.model.r2_train_history.clone(),
             r2_val:   self.model.r2_val_history.clone(),
         }).unwrap()
@@ -197,7 +195,7 @@ pub fn wasm_grid_search(
         &lambdas,
     )
         .into_iter()
-        .map(|(lambda, mse)| GridSearchEntry { lambda, mse })
+        .map(|(lambda, rmse)| GridSearchEntry { lambda, rmse })
         .collect();
 
     serde_wasm_bindgen::to_value(&results).unwrap()

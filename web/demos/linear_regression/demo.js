@@ -23,7 +23,7 @@ function makeGrid() {
 }
 
 // Wire up grid control displays
-["grid-log-min", "grid-log-max", "grid-steps"].forEach(id => {
+["grid-log-min", "grid-log-max", "grid-steps", "cv-epochs"].forEach(id => {
   const el = document.getElementById(id);
   const display = document.getElementById(`${id}-val`);
   el.addEventListener("input", () => { display.textContent = el.value; });
@@ -78,20 +78,15 @@ document.getElementById("train-btn").addEventListener("click", () => {
   setTimeout(() => {
     const model   = new WasmLinearRegression(lr, regType, lambda, epochs);
     const result  = model.fit(abalone);
-    const lossHistory = result.loss;
-    const r2Train     = result.r2_train;
-    const r2Val       = result.r2_val;
     const predictions = model.predictions(abalone);
     const weights     = model.weights();
 
-    drawLoss(lossHistory);
-    drawR2(r2Train, r2Val);
+    drawR2(result.r2_train, result.r2_val);
     drawScatter(predictions);
     drawWeights(weights);
 
-    const finalMse = lossHistory[lossHistory.length - 1];
-    const finalR2  = r2Val[r2Val.length - 1];
-    setStatus(`done — mse ${finalMse.toFixed(4)} · val R² ${finalR2.toFixed(3)}`);
+    const finalR2 = result.r2_val[result.r2_val.length - 1];
+    setStatus(`done — val R² ${finalR2.toFixed(3)}`);
     document.getElementById("train-btn").disabled = false;
   }, 10);
 });
@@ -116,12 +111,14 @@ document.getElementById("search-btn").addEventListener("click", () => {
   document.getElementById("train-btn").disabled  = true;
 
   setTimeout(() => {
-    // Step 1: grid search — evaluates λ ∈ {0, 1e-4, 1e-3, 1e-2, 1e-1, 1} via 5-fold CV
-    const results = wasm_grid_search(abalone, regType, 5, lr, epochs, makeGrid());
+    // Step 1: grid search — evaluates λ values via 5-fold CV using fewer epochs than final training
+    // cv epochs are intentionally lower: CV only needs to compare λ values, not fully converge
+    const cvEpochs = +document.getElementById("cv-epochs").value;
+    const results = wasm_grid_search(abalone, regType, 5, lr, cvEpochs, makeGrid());
     drawGridSearch(results);
 
     // Step 2: pick the λ with the lowest cross-validation MSE
-    const best = results.reduce((a, b) => a.mse < b.mse ? a : b);
+    const best = results.reduce((a, b) => a.rmse < b.rmse ? a : b);
     setStatus(`grid search done — best λ=${best.lambda.toExponential(2)} · retraining…`);
 
     // Step 3: retrain the final model on the full dataset using the best λ
@@ -130,7 +127,6 @@ document.getElementById("search-btn").addEventListener("click", () => {
       const model  = new WasmLinearRegression(lr, regType, best.lambda, epochs);
       const result = model.fit(abalone);
 
-      drawLoss(result.loss);
       drawR2(result.r2_train, result.r2_val);
       drawScatter(model.predictions(abalone));
       drawWeights(model.weights());
@@ -162,30 +158,6 @@ function svgBase(containerId, margin = MARGIN) {
     iw: W - margin.left - margin.right,
     ih: H - margin.top  - margin.bottom,
   };
-}
-
-function drawLoss(loss) {
-  const { g, iw, ih } = svgBase("loss-chart");
-
-  const x = d3.scaleLinear().domain([0, loss.length - 1]).range([0, iw]);
-  const y = d3.scaleLinear().domain([0, d3.max(loss) * 1.05]).range([ih, 0]);
-
-  g.append("g").attr("transform", `translate(0,${ih})`).call(d3.axisBottom(x).ticks(6));
-  g.append("g").call(d3.axisLeft(y).ticks(5));
-
-  g.append("text").attr("x", iw / 2).attr("y", ih + 40)
-    .attr("text-anchor", "middle").attr("class", "axis-label").text("epoch");
-  g.append("text").attr("transform", "rotate(-90)")
-    .attr("x", -ih / 2).attr("y", -45)
-    .attr("text-anchor", "middle").attr("class", "axis-label").text("mse");
-
-  const line = d3.line().x((_, i) => x(i)).y(d => y(d));
-  g.append("path")
-    .datum(loss)
-    .attr("fill", "none")
-    .attr("stroke", "var(--accent)")
-    .attr("stroke-width", 2)
-    .attr("d", line);
 }
 
 function drawR2(r2Train, r2Val) {
@@ -321,13 +293,13 @@ function drawGridSearch(results) {
   const { g, iw, ih } = svgBase("grid-chart");
 
   const sorted = [...results].sort((a, b) => a.lambda - b.lambda);
-  const best   = sorted.reduce((a, b) => a.mse < b.mse ? a : b);
+  const best   = sorted.reduce((a, b) => a.rmse < b.rmse ? a : b);
 
   // λ=0 can't live on a log scale — replace with a small proxy value for positioning only
   const lambdas = sorted.map(d => d.lambda === 0 ? 1e-5 : d.lambda);
   const x = d3.scaleLog().domain([d3.min(lambdas), d3.max(lambdas)]).range([0, iw]);
   const y = d3.scaleLinear()
-    .domain([d3.min(sorted, d => d.mse) * 0.98, d3.max(sorted, d => d.mse) * 1.02])
+    .domain([d3.min(sorted, d => d.rmse) * 0.98, d3.max(sorted, d => d.rmse) * 1.02])
     .range([ih, 0]);
 
   g.append("g").attr("transform", `translate(0,${ih})`)
@@ -338,9 +310,9 @@ function drawGridSearch(results) {
     .attr("text-anchor", "middle").attr("class", "axis-label").text("λ");
   g.append("text").attr("transform", "rotate(-90)")
     .attr("x", -ih / 2).attr("y", -45)
-    .attr("text-anchor", "middle").attr("class", "axis-label").text("validation mse");
+    .attr("text-anchor", "middle").attr("class", "axis-label").text("validation rmse");
 
-  const line = d3.line().x((d, i) => x(lambdas[i])).y(d => y(d.mse));
+  const line = d3.line().x((d, i) => x(lambdas[i])).y(d => y(d.rmse));
   g.append("path")
     .datum(sorted)
     .attr("fill", "none")
@@ -353,7 +325,7 @@ function drawGridSearch(results) {
     .enter()
     .append("circle")
     .attr("cx", (d, i) => x(lambdas[i]))
-    .attr("cy", d => y(d.mse))
+    .attr("cy", d => y(d.rmse))
     .attr("r", 5)
     .attr("fill", d => d === best ? "var(--accent-highlight, #f5a623)" : "var(--accent)")
     .attr("stroke", "#fff")

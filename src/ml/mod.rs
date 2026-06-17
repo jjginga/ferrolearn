@@ -6,7 +6,6 @@
 pub trait SupervisedModel {
     fn fit(&mut self, x: &[f64], y: &[f64], m: usize, n: usize);
     fn predict(&self, x: &[f64], m: usize, n: usize) -> Vec<f64>;
-    fn mse(&self, x: &[f64], y: &[f64], m: usize, n: usize) -> f64;
 
     fn r2(&self, x: &[f64], y: &[f64], m: usize, n: usize) -> f64 {
         r2(y, &self.predict(x, m, n))
@@ -47,7 +46,7 @@ where
     F: Fn() -> M,   // Fn() means: a closure that takes no args and returns M
 {
     let fold_size = m / k;
-    let mut total_mse = 0.0;
+    let mut total_rmse = 0.0;
 
     for fold in 0..k {
         let test_start = fold * fold_size;
@@ -73,18 +72,19 @@ where
         let m_test  = y_test.len();
 
         // model_factory() gives us a brand new model configured by the caller
+        // notebook uses RMSE as the validation metric for fold scoring
         let mut model = model_factory();
         model.fit(&x_train, &y_train, m_train, n);
-        total_mse += model.mse(&x_test, &y_test, m_test, n);
+        total_rmse += model.rmse(&x_test, &y_test, m_test, n);
     }
 
-    total_mse / k as f64
+    total_rmse / k as f64
 }
 
 // Grid search over lambda values using K-fold CV.
 //
 // model_factory now takes a lambda and returns a configured model.
-// Returns all (lambda, mse) pairs so the caller can display them and pick the best
+// Returns all (lambda, rmse) pairs — notebook selects best lambda by lowest avg validation RMSE.
 //
 // Example call:
 //   grid_search(x, y, m, n, 5, |lambda| LinearRegression::new(0.01, Regularization::L2(lambda), 1000), &lambdas)
@@ -101,8 +101,8 @@ where
 {
     lambdas.iter()
         .map(|&lambda| {
-            let mse = k_fold_cv(x, y, m, n, k, || model_factory(lambda));
-            (lambda, mse)
+            let rmse = k_fold_cv(x, y, m, n, k, || model_factory(lambda));
+            (lambda, rmse)
         })
         .collect()
 }
