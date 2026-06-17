@@ -76,10 +76,17 @@
 </section>
 
 <!-- ── Training ──────────────────────────────────────────────── -->
-<section class="viz-section">
-    <h2>R² evolution</h2>
-    <p class="caption">train vs validation R² across epochs — gap reveals overfitting</p>
-    <div id="r2-chart"></div>
+<section class="viz-section two-col">
+    <div>
+        <h2>R² evolution</h2>
+        <p class="caption">train vs validation R² across epochs — gap reveals overfitting</p>
+        <div id="r2-chart"></div>
+    </div>
+    <div>
+        <h2>RMSE evolution</h2>
+        <p class="caption">train vs validation RMSE in rings — error in original units</p>
+        <div id="rmse-chart"></div>
+    </div>
 </section>
 
 <!-- ── Results ───────────────────────────────────────────────── -->
@@ -94,6 +101,13 @@
         <p class="caption">weight magnitude after training — positive = more rings</p>
         <div id="weights-chart"></div>
     </div>
+</section>
+
+<!-- ── Weight stability ───────────────────────────────────────── -->
+<section class="viz-section">
+    <h2>weight stability across folds</h2>
+    <p class="caption">distribution of each feature's weight across 5 CV folds — wide spread reveals instability</p>
+    <div id="stability-chart"></div>
 </section>
 
 <!-- ── Grid search ───────────────────────────────────────────── -->

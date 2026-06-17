@@ -10,6 +10,8 @@ pub struct LinearRegression {
     pub epochs: usize,
     pub r2_train_history: Vec<f64>,
     pub r2_val_history: Vec<f64>,
+    pub rmse_train_history: Vec<f64>,
+    pub rmse_val_history: Vec<f64>,
 }
 
 impl LinearRegression {
@@ -23,6 +25,8 @@ impl LinearRegression {
             epochs,
             r2_train_history: Vec::new(),
             r2_val_history: Vec::new(),
+            rmse_train_history: Vec::new(),
+            rmse_val_history: Vec::new(),
         }
     }
 
@@ -45,9 +49,11 @@ impl LinearRegression {
         let x_val_aug   = augment(&x_val_norm,   m_val,   n);
         let n_aug = n + 1;
 
-        self.weights = vec![0.0; n_aug];
+        self.weights             = vec![0.0; n_aug];
         self.r2_train_history    = Vec::with_capacity(self.epochs);
         self.r2_val_history      = Vec::with_capacity(self.epochs);
+        self.rmse_train_history  = Vec::with_capacity(self.epochs);
+        self.rmse_val_history    = Vec::with_capacity(self.epochs);
 
         // gradient of (1/m)||Xw-y||² is (1/m)·Xᵀe — matching the notebook (no factor of 2)
         let scale = 1.0 / m_train as f64;
@@ -60,12 +66,14 @@ impl LinearRegression {
                 .map(|(p, t)| p - t)
                 .collect();
 
-            // Track R² on training set before weight update (matches notebook — R² is the primary metric)
+            // Track R² and RMSE on training set before weight update
             self.r2_train_history.push(crate::ml::r2(y_train, &preds));
+            self.rmse_train_history.push(crate::ml::rmse(y_train, &preds));
 
-            // Record val R² using current weights
+            // Record val metrics using current weights
             let val_preds = mat_vec_mul(&x_val_aug, &self.weights, m_val, n_aug);
             self.r2_val_history.push(crate::ml::r2(y_val, &val_preds));
+            self.rmse_val_history.push(crate::ml::rmse(y_val, &val_preds));
 
             // Gradient and weight update — identical to fit()
             let mut grad = mat_t_vec_mul(&x_train_aug, &residuals, m_train, n_aug);

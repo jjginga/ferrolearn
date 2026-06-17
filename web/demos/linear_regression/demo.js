@@ -1,4 +1,4 @@
-import init, { WasmAbalone, WasmLinearRegression, wasm_grid_search } from "../../../pkg/rust_ai.js";
+import init, { WasmAbalone, WasmLinearRegression, wasm_grid_search, wasm_cv_weights } from "../../../pkg/rust_ai.js";
 import { fetchCSV } from "../../utils/fetch.js";
 import { ABALONE_URL } from "../../datasets/abalone.js";
 
@@ -82,11 +82,13 @@ document.getElementById("train-btn").addEventListener("click", () => {
     const weights     = model.weights();
 
     drawR2(result.r2_train, result.r2_val);
+    drawRMSE(result.rmse_train, result.rmse_val);
     drawScatter(predictions);
     drawWeights(weights);
 
-    const finalR2 = result.r2_val[result.r2_val.length - 1];
-    setStatus(`done — val R² ${finalR2.toFixed(3)}`);
+    const finalR2   = result.r2_val[result.r2_val.length - 1];
+    const finalRmse = result.rmse_val[result.rmse_val.length - 1];
+    setStatus(`done — val R² ${finalR2.toFixed(3)} · val RMSE ${finalRmse.toFixed(3)}`);
     document.getElementById("train-btn").disabled = false;
   }, 10);
 });
@@ -128,12 +130,19 @@ document.getElementById("search-btn").addEventListener("click", () => {
       const result = model.fit(abalone);
 
       drawR2(result.r2_train, result.r2_val);
+      drawRMSE(result.rmse_train, result.rmse_val);
       drawScatter(model.predictions(abalone));
       drawWeights(model.weights());
 
-      const finalR2 = result.r2_val[result.r2_val.length - 1];
+      // Weight stability: run k-fold CV with the best lambda and plot weight spread across folds
+      // Uses cv epochs (same as grid search) — enough to compare relative stability
+      const foldWeights = wasm_cv_weights(abalone, regType, 5, lr, cvEpochs, best.lambda);
+      drawWeightStability(foldWeights);
+
+      const finalR2   = result.r2_val[result.r2_val.length - 1];
+      const finalRmse = result.rmse_val[result.rmse_val.length - 1];
       setStatus(
-        `done — best λ=${best.lambda.toExponential(2)} · val R² ${finalR2.toFixed(3)}`
+        `done — best λ=${best.lambda.toExponential(2)} · val R² ${finalR2.toFixed(3)} · val RMSE ${finalRmse.toFixed(3)}`
       );
       document.getElementById("search-btn").disabled = false;
       document.getElementById("train-btn").disabled  = false;
@@ -209,6 +218,135 @@ function drawR2(r2Train, r2Val) {
     .attr("stroke", "var(--accent-highlight, #f5a623)").attr("stroke-width", 2)
     .attr("stroke-dasharray", "5,3");
   legend.append("text").attr("x", 25).attr("y", 20).attr("class", "axis-label").text("val");
+}
+
+function drawRMSE(rmseTrain, rmseVal) {
+  const { g, iw, ih } = svgBase("rmse-chart");
+
+  const x = d3.scaleLinear().domain([0, rmseTrain.length - 1]).range([0, iw]);
+
+  const allRmse = [...rmseTrain, ...rmseVal].filter(v => isFinite(v));
+  const y = d3.scaleLinear()
+    .domain([d3.min(allRmse) * 0.95, d3.max(allRmse) * 1.05])
+    .range([ih, 0]);
+
+  g.append("g").attr("transform", `translate(0,${ih})`).call(d3.axisBottom(x).ticks(6));
+  g.append("g").call(d3.axisLeft(y).ticks(5));
+
+  g.append("text").attr("x", iw / 2).attr("y", ih + 40)
+    .attr("text-anchor", "middle").attr("class", "axis-label").text("epoch");
+  g.append("text").attr("transform", "rotate(-90)")
+    .attr("x", -ih / 2).attr("y", -45)
+    .attr("text-anchor", "middle").attr("class", "axis-label").text("RMSE (rings)");
+
+  const line = d3.line().defined(d => isFinite(d));
+
+  // Training RMSE — blue
+  g.append("path")
+    .datum(rmseTrain)
+    .attr("fill", "none")
+    .attr("stroke", "var(--accent)")
+    .attr("stroke-width", 2)
+    .attr("d", line.x((_, i) => x(i)).y(d => y(d)));
+
+  // Validation RMSE — orange dashed
+  g.append("path")
+    .datum(rmseVal)
+    .attr("fill", "none")
+    .attr("stroke", "var(--accent-highlight, #f5a623)")
+    .attr("stroke-width", 2)
+    .attr("stroke-dasharray", "5,3")
+    .attr("d", line.x((_, i) => x(i)).y(d => y(d)));
+
+  // Legend
+  const legend = g.append("g").attr("transform", `translate(${iw - 120}, ${ih - 40})`);
+  legend.append("line").attr("x1", 0).attr("x2", 20).attr("y1", 0).attr("y2", 0)
+    .attr("stroke", "var(--accent)").attr("stroke-width", 2);
+  legend.append("text").attr("x", 25).attr("y", 4).attr("class", "axis-label").text("train");
+  legend.append("line").attr("x1", 0).attr("x2", 20).attr("y1", 16).attr("y2", 16)
+    .attr("stroke", "var(--accent-highlight, #f5a623)").attr("stroke-width", 2)
+    .attr("stroke-dasharray", "5,3");
+  legend.append("text").attr("x", 25).attr("y", 20).attr("class", "axis-label").text("val");
+}
+
+function drawWeightStability(foldWeights) {
+  // Group weights by feature name
+  const byFeature = d3.group(foldWeights, d => d.name);
+
+  // Compute box stats for each feature (k=5 folds)
+  const stats = Array.from(byFeature, ([name, vals]) => {
+    const ws = vals.map(d => d.weight).sort(d3.ascending);
+    return {
+      name,
+      min:    ws[0],
+      q1:     d3.quantile(ws, 0.25),
+      median: d3.quantile(ws, 0.5),
+      q3:     d3.quantile(ws, 0.75),
+      max:    ws[ws.length - 1],
+      values: ws,  // individual dots
+    };
+  }).sort((a, b) => Math.abs(b.median) - Math.abs(a.median));
+
+  const { g, iw, ih } = svgBase("stability-chart", { ...MARGIN, left: 110 });
+
+  const allVals = foldWeights.map(d => d.weight);
+  const ext = d3.extent(allVals);
+  const pad = (ext[1] - ext[0]) * 0.1;
+  const x = d3.scaleLinear().domain([ext[0] - pad, ext[1] + pad]).range([0, iw]);
+  const y = d3.scaleBand().domain(stats.map(d => d.name)).range([0, ih]).padding(0.3);
+
+  g.append("g").attr("transform", `translate(0,${ih})`).call(d3.axisBottom(x).ticks(5));
+  g.append("g").call(d3.axisLeft(y));
+
+  // Zero line
+  g.append("line")
+    .attr("x1", x(0)).attr("y1", 0)
+    .attr("x2", x(0)).attr("y2", ih)
+    .attr("stroke", "#aaa").attr("stroke-width", 1);
+
+  g.append("text").attr("x", iw / 2).attr("y", ih + 40)
+    .attr("text-anchor", "middle").attr("class", "axis-label").text("weight value");
+
+  const bw = y.bandwidth();
+
+  stats.forEach(d => {
+    const cy = y(d.name) + bw / 2;
+
+    // Whisker line (min to max)
+    g.append("line")
+      .attr("x1", x(d.min)).attr("x2", x(d.max))
+      .attr("y1", cy).attr("y2", cy)
+      .attr("stroke", "#888").attr("stroke-width", 1.5);
+
+    // IQR box (Q1 to Q3)
+    g.append("rect")
+      .attr("x", x(Math.min(d.q1, d.q3)))
+      .attr("y", y(d.name) + bw * 0.15)
+      .attr("width", Math.abs(x(d.q3) - x(d.q1)))
+      .attr("height", bw * 0.7)
+      .attr("fill", "var(--accent)")
+      .attr("fill-opacity", 0.3)
+      .attr("stroke", "var(--accent)")
+      .attr("stroke-width", 1.5);
+
+    // Median line
+    g.append("line")
+      .attr("x1", x(d.median)).attr("x2", x(d.median))
+      .attr("y1", y(d.name) + bw * 0.15)
+      .attr("y2", y(d.name) + bw * 0.85)
+      .attr("stroke", "var(--accent)")
+      .attr("stroke-width", 2.5);
+
+    // Individual fold dots
+    d.values.forEach(v => {
+      g.append("circle")
+        .attr("cx", x(v))
+        .attr("cy", cy)
+        .attr("r", 3)
+        .attr("fill", "var(--accent)")
+        .attr("fill-opacity", 0.7);
+    });
+  });
 }
 
 function drawScatter(predictions) {

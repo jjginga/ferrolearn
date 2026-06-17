@@ -31,6 +31,16 @@ struct WeightEntry {
 struct FitResult {
     r2_train: Vec<f64>,
     r2_val: Vec<f64>,
+    rmse_train: Vec<f64>,
+    rmse_val: Vec<f64>,
+}
+
+// One weight entry per feature per fold — used to build the weight stability boxplot in JS.
+#[derive(serde::Serialize)]
+struct FoldWeight {
+    fold: usize,
+    name: String,
+    weight: f64,
 }
 
 #[derive(serde::Serialize)]
@@ -102,8 +112,10 @@ impl WasmLinearRegression {
         self.model.fit_with_val(x_train, y_train, m_train, x_val, y_val, m_val, n);
 
         serde_wasm_bindgen::to_value(&FitResult {
-            r2_train: self.model.r2_train_history.clone(),
-            r2_val:   self.model.r2_val_history.clone(),
+            r2_train:   self.model.r2_train_history.clone(),
+            r2_val:     self.model.r2_val_history.clone(),
+            rmse_train: self.model.rmse_train_history.clone(),
+            rmse_val:   self.model.rmse_val_history.clone(),
         }).unwrap()
     }
 
@@ -199,6 +211,67 @@ pub fn wasm_grid_search(
         .collect();
 
     serde_wasm_bindgen::to_value(&results).unwrap()
+}
+
+// Runs k-fold CV with a fixed lambda and returns the trained weights from each fold.
+// Used to build the weight stability boxplot — shows how much each feature's weight
+// varies across folds, which reveals instability caused by multicollinearity.
+#[wasm_bindgen]
+pub fn wasm_cv_weights(
+    abalone: &WasmAbalone,
+    reg_type: &str,
+    k: usize,
+    learning_rate: f64,
+    epochs: usize,
+    lambda: f64,
+) -> JsValue {
+    let x = abalone.dataset.feature_matrix();
+    let y = abalone.dataset.targets();
+    let m = abalone.dataset.len();
+    let n = abalone.dataset.feature_names().len();
+    let feature_names = abalone.dataset.feature_names();
+
+    let fold_size = m / k;
+    let reg_type  = reg_type.to_string();
+
+    let mut entries: Vec<FoldWeight> = Vec::new();
+
+    for fold in 0..k {
+        let test_start = fold * fold_size;
+        let test_end   = (fold + 1) * fold_size;
+
+        let mut x_train = Vec::new();
+        let mut y_train = Vec::new();
+
+        for i in 0..m {
+            let row = &x[i * n..(i + 1) * n];
+            if i < test_start || i >= test_end {
+                x_train.extend_from_slice(row);
+                y_train.push(y[i]);
+            }
+        }
+
+        let m_train = y_train.len();
+        let reg = match reg_type.as_str() {
+            "l1" => Regularization::L1(lambda),
+            "l2" => Regularization::L2(lambda),
+            _    => Regularization::None,
+        };
+
+        let mut model = LinearRegression::new(learning_rate, reg, epochs);
+        model.fit(&x_train, &y_train, m_train, n);
+
+        // weights[0] is bias — skip; weights[1..] map to feature names
+        for (i, name) in feature_names.iter().enumerate() {
+            entries.push(FoldWeight {
+                fold,
+                name:   name.to_string(),
+                weight: *model.weights.get(i + 1).unwrap_or(&0.0),
+            });
+        }
+    }
+
+    serde_wasm_bindgen::to_value(&entries).unwrap()
 }
 
 #[wasm_bindgen]
