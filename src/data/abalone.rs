@@ -141,4 +141,42 @@ impl AbaloneDataset {
         self.rings.iter().map(|&r| r as f64).collect()
     }
 
-}
+    // binary sex labels for non-infant samples: M=1.0, F=0.0 — target variable for logistic regression
+    pub fn sex_targets(&self) -> Vec<f64> {
+        self.sex.iter()
+            .filter(|s| s.as_str() != "I")
+            .map(|s| if s == "M" { 1.0 } else { 0.0 })
+            .collect()
+    }
+
+    // feature matrix for non-infant samples — physical measurements only, sex columns excluded
+    pub fn sex_feature_matrix(&self) -> Vec<f64> {
+        let features = self.sex_feature_names();
+        let n = features.len();
+        let m = self.sex_len();
+        let mut matrix = vec![0.0; m * n];
+        let mut row = 0;
+        for i in 0..self.len() {
+            if self.sex[i] == "I" { continue; }
+            matrix[row * n + 0] = self.length[i];
+            matrix[row * n + 1] = self.diameter[i];
+            matrix[row * n + 2] = self.height[i];
+            matrix[row * n + 3] = self.whole_weight[i];
+            matrix[row * n + 4] = self.shucked_weight[i];
+            matrix[row * n + 5] = self.viscera_weight[i];
+            matrix[row * n + 6] = self.shell_weight[i];
+            matrix[row * n + 7] = self.rings[i] as f64;
+            row += 1;
+        }
+        matrix
+    }
+
+    pub fn sex_feature_names(&self) -> Vec<&'static str> {
+        vec!["length", "diameter", "height", "whole_weight",
+             "shucked_weight", "viscera_weight", "shell_weight", "rings"]
+    }
+
+    // number of non-infant samples
+    pub fn sex_len(&self) -> usize {
+        self.sex.iter().filter(|s| s.as_str() != "I").count()
+    }}

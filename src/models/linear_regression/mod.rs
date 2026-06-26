@@ -55,7 +55,7 @@ impl LinearRegression {
         self.rmse_train_history  = Vec::with_capacity(self.epochs);
         self.rmse_val_history    = Vec::with_capacity(self.epochs);
 
-        // gradient of (1/m)||Xw-y||² is (1/m)·Xᵀe — matching the notebook (no factor of 2)
+        // gradient of (1/m)||Xw-y||² is (1/m)·Xᵀe
         let scale = 1.0 / m_train as f64;
 
         for _ in 0..self.epochs {

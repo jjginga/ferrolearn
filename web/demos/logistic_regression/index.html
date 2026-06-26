@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logistic Regression — ferrolearn</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h1>logistic regression</h1>
+<p class="subtitle">abalone dataset · predicting sex (M/F) from physical measurements</p>
+<p id="status">loading...</p>
+
+<!-- ── Controls ─────────────────────────────────────────────── -->
+<section class="controls">
+    <div class="control-group">
+        <label for="reg-type">regularization</label>
+        <select id="reg-type">
+            <option value="none">none</option>
+            <option value="l2" selected>l2 (ridge)</option>
+            <option value="l1">l1 (lasso)</option>
+        </select>
+    </div>
+
+    <div class="control-group">
+        <label for="lambda">λ <span id="lambda-val">0.01</span></label>
+        <input id="lambda" type="range" min="-4" max="0" step="0.5" value="-2">
+    </div>
+
+    <div class="control-group">
+        <label for="lr">learning rate <span id="lr-val">0.01</span></label>
+        <input id="lr" type="range" min="-5" max="-1" step="0.1" value="-2">
+    </div>
+
+    <div class="control-group">
+        <label for="epochs">epochs <span id="epochs-val">5000</span></label>
+        <input id="epochs" type="range" min="1000" max="30000" step="1000" value="5000">
+    </div>
+
+    <!-- train: manual run using the λ slider above -->
+    <button id="train-btn" disabled>train</button>
+
+    <!-- search & train: finds the best λ via grid search then retrains —
+         the correct workflow, bypasses the λ slider -->
+    <button id="search-btn" disabled>search &amp; train</button>
+</section>
+
+<p class="note">
+    <strong>train</strong> — gradient descent with the λ from the slider.
+    <strong>search &amp; train</strong> — finds the best λ automatically via 5-fold cross-validation, then retrains with it. this is the correct workflow.
+</p>
+
+<!-- ── Grid search controls ──────────────────────────────────── -->
+<section class="controls">
+    <div class="control-group">
+        <label for="grid-log-min">λ min (10^x) <span id="grid-log-min-val">-6</span></label>
+        <input id="grid-log-min" type="range" min="-8" max="0" step="1" value="-6">
+    </div>
+
+    <div class="control-group">
+        <label for="grid-log-max">λ max (10^x) <span id="grid-log-max-val">1</span></label>
+        <input id="grid-log-max" type="range" min="0" max="4" step="1" value="1">
+    </div>
+
+    <div class="control-group">
+        <label for="grid-steps">grid steps <span id="grid-steps-val">30</span></label>
+        <input id="grid-steps" type="range" min="5" max="60" step="5" value="30">
+    </div>
+
+    <div class="control-group">
+        <label for="cv-epochs">cv epochs <span id="cv-epochs-val">5000</span></label>
+        <input id="cv-epochs" type="range" min="1000" max="25000" step="1000" value="5000">
+    </div>
+</section>
+
+<!-- ── Training ──────────────────────────────────────────────── -->
+<section class="viz-section two-col">
+    <div>
+        <h2>loss evolution</h2>
+        <p class="caption">train vs validation binary cross-entropy — lower is better</p>
+        <div id="loss-chart"></div>
+    </div>
+    <div>
+        <h2>accuracy evolution</h2>
+        <p class="caption">train vs validation accuracy — fraction of correctly classified samples</p>
+        <div id="acc-chart"></div>
+    </div>
+</section>
+
+<!-- ── Results ───────────────────────────────────────────────── -->
+<section class="viz-section two-col">
+    <div>
+        <h2>predicted probabilities</h2>
+        <p class="caption">each dot is one abalone — x is P(male), rows are actual sex</p>
+        <div id="prob-chart"></div>
+    </div>
+    <div>
+        <h2>feature weights</h2>
+        <p class="caption">weight magnitude after training — positive = more likely male</p>
+        <div id="weights-chart"></div>
+    </div>
+</section>
+
+<!-- ── Weight stability ───────────────────────────────────────── -->
+<section class="viz-section">
+    <h2>weight stability across folds</h2>
+    <p class="caption">distribution of each feature's weight across 5 CV folds — wide spread reveals instability</p>
+    <div id="stability-chart"></div>
+</section>
+
+<!-- ── Grid search ───────────────────────────────────────────── -->
+<section class="viz-section">
+    <h2>grid search — λ vs validation accuracy</h2>
+    <p class="caption">5-fold cross-validation across λ values · best λ used to retrain</p>
+    <div id="grid-chart"></div>
+</section>
+
+<script type="module" src="demo.js"></script>
+</body>
+</html>

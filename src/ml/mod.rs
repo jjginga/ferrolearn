@@ -35,18 +35,20 @@ pub enum Regularization {
 //
 // Example call:
 //   k_fold_cv(x, y, m, n, 5, || LinearRegression::new(0.01, Regularization::L2(0.1), 1000))
-pub fn k_fold_cv<M, F>(
+pub fn k_fold_cv<M, F, S>(
     x: &[f64], y: &[f64],
     m: usize, n: usize,
     k: usize,
     model_factory: F,
+    metric: S,
 ) -> f64
 where
     M: SupervisedModel,
     F: Fn() -> M,   // Fn() means: a closure that takes no args and returns M
+    S: Fn(&M, &[f64], &[f64], usize, usize) -> f64,
 {
     let fold_size = m / k;
-    let mut total_rmse = 0.0;
+    let mut total_score = 0.0;
 
     for fold in 0..k {
         let test_start = fold * fold_size;
@@ -75,10 +77,10 @@ where
         // notebook uses RMSE as the validation metric for fold scoring
         let mut model = model_factory();
         model.fit(&x_train, &y_train, m_train, n);
-        total_rmse += model.rmse(&x_test, &y_test, m_test, n);
+        total_score += metric(&model, &x_test, &y_test, m_test, n);
     }
 
-    total_rmse / k as f64
+    total_score / k as f64
 }
 
 // Grid search over lambda values using K-fold CV.
@@ -88,21 +90,23 @@ where
 //
 // Example call:
 //   grid_search(x, y, m, n, 5, |lambda| LinearRegression::new(0.01, Regularization::L2(lambda), 1000), &lambdas)
-pub fn grid_search<M, F>(
+pub fn grid_search<M, F, S>(
     x: &[f64], y: &[f64],
     m: usize, n: usize,
     k: usize,
     model_factory: F,
     lambdas: &[f64],
+    metric: S,
 ) -> Vec<(f64, f64)>
 where
     M: SupervisedModel,
     F: Fn(f64) -> M,
+    S: Fn(&M, &[f64], &[f64], usize, usize) -> f64 + Copy,
 {
     lambdas.iter()
         .map(|&lambda| {
-            let rmse = k_fold_cv(x, y, m, n, k, || model_factory(lambda));
-            (lambda, rmse)
+            let score = k_fold_cv(x, y, m, n, k, || model_factory(lambda), metric);
+            (lambda, score)
         })
         .collect()
 }
